@@ -15,11 +15,6 @@ from rgb2ycbcr import RGB2YCrCb
 import random
 
 import numpy as np
-
-
-
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
-
 warnings.filterwarnings('ignore')
 
 def seed_everything(seed=3407):
@@ -31,58 +26,68 @@ def seed_everything(seed=3407):
     torch.backends.cudnn.deterministic = True
 
 
-def attack(image_vis, image_ir, image_gt, model, loss, step_size=1/255, total_steps=3, epsilon=4/255):
-    # seed_everything()
+def attack(
+    image_vis,
+    image_ir,
+    image_gt,
+    model,
+    loss,
+    step_size=1 / 255,
+    total_steps=3,
+    epsilon=4 / 255,
+):
+
+
     model.eval()
-    image_vis = image_vis.cuda()
-    image_ir = image_ir.cuda()
-    image_gt = image_gt.cuda()
-    image_gt_ycbcr = RGB2YCrCb(image_gt)
-    image_gt_ycbcr = image_gt_ycbcr[:, : 1] # (n, 1, h, w)
-    image_vis_ycrcb = RGB2YCrCb(image_vis)
 
+    # random start in [-epsilon, epsilon]
+    adv_img_vis = (image_vis + torch.empty_like(image_vis).uniform_(-epsilon, epsilon)).clamp(0, 1).detach()
+    adv_img_ir  = (image_ir  + torch.empty_like(image_ir ).uniform_(-epsilon, epsilon)).clamp(0, 1).detach()
 
-    random_init_vis = torch.rand_like(image_vis)*0.0003
-    random_init_ir = torch.rand_like(image_ir)*0.0003
-    adv_img_vis = Variable(torch.clamp(image_vis.data+random_init_vis.data,0,1), requires_grad = True)
-    adv_img_ir = Variable(torch.clamp(image_ir.data+random_init_ir.data,0,1), requires_grad = True)
+    adv_img_vis.requires_grad_(True)
+    adv_img_ir.requires_grad_(True)
 
-    for t in range(total_steps):
+    for _ in range(total_steps):
+        model.zero_grad(set_to_none=True)
+        if adv_img_vis.grad is not None:
+            adv_img_vis.grad = None
+        if adv_img_ir.grad is not None:
+            adv_img_ir.grad = None
 
-        adv_image_vis_ycrcb = RGB2YCrCb(adv_img_vis)
-        logits = model(adv_image_vis_ycrcb, adv_img_ir)
-        # loss_total, loss_in, loss_grad, loss_ssim =  loss(image_vis_ycrcb, image_ir, logits)
-        loss_total, loss_mse, loss_ssim = loss(logits, image_gt_ycbcr)
+        logits = model(adv_img_vis, adv_img_ir)
+        loss_total = loss(logits, image_gt)
         loss_total.backward()
-        print(loss_total)
 
         with torch.no_grad():
-            # update image_vis_adv
-            grad_info = step_size * adv_img_vis.grad.data.sign()
-            adv_img_vis = adv_img_vis.data + grad_info
-            eta = torch.clamp(adv_img_vis.data - image_vis.data, -epsilon, epsilon)
-            adv_img_vis = image_vis.data + eta
 
-            grad_info = step_size * adv_img_ir.grad.data.sign()
-            adv_img_ir = adv_img_ir.data + grad_info
-            eta = torch.clamp(adv_img_ir.data - image_ir.data, -epsilon, epsilon)
-            adv_img_ir = image_ir.data + eta
-        
-        adv_img_vis = Variable(torch.clamp(adv_img_vis.data,0,1), requires_grad = True)
-        adv_img_ir = Variable(torch.clamp(adv_img_ir.data,0,1), requires_grad = True)
-    
+            assert adv_img_vis.grad is not None and adv_img_ir.grad is not None
+            adv_img_vis = adv_img_vis + step_size * adv_img_vis.grad.sign()
+            adv_img_ir  = adv_img_ir  + step_size * adv_img_ir .grad.sign()
+
+            adv_img_vis = image_vis + (adv_img_vis - image_vis).clamp(-epsilon, epsilon)
+            adv_img_ir  = image_ir  + (adv_img_ir  - image_ir ).clamp(-epsilon, epsilon)
+
+            adv_img_vis.clamp_(0, 1)
+            adv_img_ir.clamp_(0, 1)
+
+        adv_img_vis = adv_img_vis.detach().requires_grad_(True)
+        adv_img_ir  = adv_img_ir.detach().requires_grad_(True)
+
     return adv_img_vis, adv_img_ir
 
 
 
+
 def train(logger):
-    seed_everything()
+
     lr_start = 0.001
     model_path = './model'
     model_path = os.path.join(model_path)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     train_model = ESSA_UNet()
-    train_model.cuda()
+    train_model.to(device)
     train_model.train()
 
     optimizer = torch.optim.Adam(train_model.parameters(), lr=lr_start)
@@ -93,16 +98,15 @@ def train(logger):
 
 
     train_dataset = fusion_dataset_gt(ir_path=ir_path, vis_path=vis_path, gt_path=gt_path)
-    print("The length of training dataset:{}".format(train_dataset.length))
+    logger.info("The length of training dataset:{}".format(train_dataset.length))
     train_loader = DataLoader(
         dataset=train_dataset,
         batch_size=4,
         shuffle=True,
-        num_workers=0,
+        num_workers=4,
         pin_memory=True,
         drop_last=True,
     )
-    train_loader.n_iter = len(train_loader)
 
     train_loss = fusion_loss_adv()
 
@@ -111,8 +115,6 @@ def train(logger):
 
     st = glob_st = time.time()
     logger.info('Train start!')
-
-    # plot_loss_total = []  # 画图用
 
     for epo in range(0, epoch):
         lr_start = 0.001
@@ -151,8 +153,8 @@ def train(logger):
 
             ed = time.time()
             t_intv, glob_t_intv = ed - st, ed - glob_st
-            now_it = train_loader.n_iter * epo + it + 1
-            eta = int((train_loader.n_iter * epoch - now_it)
+            now_it = len(train_loader) * epo + it + 1
+            eta = int((len(train_loader) * epoch - now_it)
                       * (glob_t_intv / (now_it)))
             eta = str(datetime.timedelta(seconds=eta))
             if now_it % 10 == 0:
@@ -174,7 +176,7 @@ def train(logger):
                     ]
                 ).format(
                         it=now_it,
-                        max_it=train_loader.n_iter * epoch,
+                        max_it=len(train_loader) * epoch,
                         loss=loss.item(),
                         loss_total=loss_total.item(),
                         loss_mse=loss_mse.item(),
@@ -191,10 +193,6 @@ def train(logger):
                 logger.info(msg)
                 st = ed
 
-                # loss图
-                # plot_loss_total.append((loss_total.cpu().detach().numpy()))
-                # loss_filename_path1 = "D:\\Python\\code_lok18\\myMedicalCode\\loss_chat\\" + "loss-total_a=0.8" + ".mat"
-                # scio.savemat(loss_filename_path1, {'loss_total': plot_loss_total})
 
     train_model_file = os.path.join(model_path, 'rebuttal_13.pth')
     torch.save(train_model.state_dict(), train_model_file)
@@ -202,6 +200,10 @@ def train(logger):
     logger.info('\n')
 
 if __name__ == "__main__":
+
+    os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+    seed_everything(2026)
+
     logpath = './logs'
     logger = logging.getLogger()
     setup_logger(logpath)

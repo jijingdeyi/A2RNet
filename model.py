@@ -10,12 +10,15 @@ class Convdown(nn.Module):
         super().__init__()
         self.patch_embed = PatchEmbed()
         self.patch_unembed = PatchUnEmbed(embed_dim=dim)
-        self.convd = nn.Sequential(nn.Conv2d(dim * 2, dim * 2, 1, 1, 0), nn.LeakyReLU(negative_slope=0.2, inplace=True),
-                                   nn.Dropout2d(0.2),
-                                   nn.Conv2d(dim * 2, dim * 2, 3, 1, 1),
-                                   nn.LeakyReLU(negative_slope=0.2, inplace=True),
-                                   nn.Dropout2d(0.2),
-                                   nn.Conv2d(dim * 2, dim, 1, 1, 0))
+        self.convd = nn.Sequential(
+            nn.Conv2d(dim * 2, dim * 2, 1, 1, 0),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            nn.Dropout2d(0.2),
+            nn.Conv2d(dim * 2, dim * 2, 3, 1, 1),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            nn.Dropout2d(0.2),
+            nn.Conv2d(dim * 2, dim, 1, 1, 0),
+        )
 
         self.attn = ESSAttn(dim)
         self.norm = nn.LayerNorm(dim)
@@ -38,12 +41,15 @@ class Convup(nn.Module):
         super().__init__()
         self.patch_embed = PatchEmbed()
         self.patch_unembed = PatchUnEmbed(embed_dim=dim)
-        self.convu = nn.Sequential(nn.Conv2d(dim * 2, dim * 2, 1, 1, 0), nn.LeakyReLU(negative_slope=0.2, inplace=True),
-                                   nn.Dropout2d(0.2),
-                                   nn.Conv2d(dim * 2, dim * 2, 3, 1, 1),
-                                   nn.LeakyReLU(negative_slope=0.2, inplace=True),
-                                   nn.Dropout2d(0.2),
-                                   nn.Conv2d(dim * 2, dim, 1, 1, 0))
+        self.convu = nn.Sequential(
+            nn.Conv2d(dim * 2, dim * 2, 1, 1, 0),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            nn.Dropout2d(0.2),
+            nn.Conv2d(dim * 2, dim * 2, 3, 1, 1),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            nn.Dropout2d(0.2),
+            nn.Conv2d(dim * 2, dim, 1, 1, 0),
+        )
         self.drop = nn.Dropout2d(0.2)
         self.norm = nn.LayerNorm(dim)
         self.attn = ESSAttn(dim)
@@ -69,21 +75,23 @@ class blockup(nn.Module):
         self.convdownsample = Downsample(scale=upscale, num_feat=dim)
 
     def forward(self, x):
-        xup = self.convupsample(x)
-        x1 = self.convup(xup)
-        xdown = self.convdownsample(x1) + x
-        x2 = self.convdown(xdown)
-        xup = self.convupsample(x2) + x1
-        x3 = self.convup(xup)
-        xdown = self.convdownsample(x3) + x2
-        x4 = self.convdown(xdown)
-        xup = self.convupsample(x4) + x3
-        x5 = self.convup(xup)
+        xup = self.convupsample(x) # 大
+        x1 = self.convup(xup) # 大
+        xdown = self.convdownsample(x1) + x # 原
+        x2 = self.convdown(xdown) # 原
+        xup = self.convupsample(x2) + x1 # 大
+        x3 = self.convup(xup) # 大
+        xdown = self.convdownsample(x3) + x2 # 原
+        x4 = self.convdown(xdown) # 原
+        xup = self.convupsample(x4) + x3 # 大
+        x5 = self.convup(xup) # 大
         return x5
 
 
 class PatchEmbed(nn.Module):
-    def __init__(self, ):
+    def __init__(
+        self,
+    ):
         super().__init__()
 
     def forward(self, x):
@@ -102,7 +110,8 @@ class PatchUnEmbed(nn.Module):
         x = x.transpose(1, 2).view(B, self.embed_dim, x_size[0], x_size[1])
         return x
 
-#ARB
+
+# ARB
 class ESSAttn(nn.Module):
 
     def __init__(self, dim):
@@ -124,8 +133,8 @@ class ESSAttn(nn.Module):
         k2 = torch.pow(k, 2)
         k2s = torch.sum(k2, dim=2, keepdim=True)
         t1 = v
-        k2 = torch.nn.functional.normalize((k2 / (k2s + 1e-7)), dim=-2)
-        q2 = torch.nn.functional.normalize((q2 / (q2s + 1e-7)), dim=-1)
+        k2 = F.normalize((k2 / (k2s + 1e-7)), dim=-2)
+        q2 = F.normalize((q2 / (q2s + 1e-7)), dim=-1)
         t2 = q2 @ (k2.transpose(-2, -1) @ v) / math.sqrt(N)
         # t2 = self.norm1(t2)*0.3
         # print(torch.mean(t1),torch.std(t1))
@@ -166,7 +175,9 @@ class Downsample(nn.Sequential):
             m.append(nn.Conv2d(num_feat, num_feat // 9, 3, 1, 1))
             m.append(nn.PixelUnshuffle(3))
         else:
-            raise ValueError(f'scale {scale} is not supported. ' 'Supported scales: 2^n and 3.')
+            raise ValueError(
+                f"scale {scale} is not supported. " "Supported scales: 2^n and 3."
+            )
         super(Downsample, self).__init__(*m)
 
 
@@ -181,8 +192,11 @@ class Upsample(nn.Sequential):
             m.append(nn.Conv2d(num_feat, 9 * num_feat, 3, 1, 1))
             m.append(nn.PixelShuffle(3))
         else:
-            raise ValueError(f'scale {scale} is not supported. ' 'Supported scales: 2^n and 3.')
+            raise ValueError(
+                f"scale {scale} is not supported. " "Supported scales: 2^n and 3."
+            )
         super(Upsample, self).__init__(*m)
+
 
 # DRM
 class ESSA(nn.Module):
@@ -203,11 +217,9 @@ class Conv(nn.Module):
     def __init__(self, C_in, C_out):
         super(Conv, self).__init__()
         self.layer = nn.Sequential(
-
             nn.Conv2d(C_in, C_out, 3, 1, 1),
-            nn.Dropout(0.1), 
+            nn.Dropout(0.1),
             nn.LeakyReLU(),
-
             nn.Conv2d(C_out, C_out, 3, 1, 1),
             nn.Dropout(0.1),
             nn.LeakyReLU(),
@@ -216,6 +228,7 @@ class Conv(nn.Module):
     def forward(self, x):
         return self.layer(x)
 
+
 class DownSampling(nn.Module):
     def __init__(self, C):
         super(DownSampling, self).__init__()
@@ -223,6 +236,7 @@ class DownSampling(nn.Module):
 
     def forward(self, x):
         return self.Down(x)
+
 
 class UpSampling(nn.Module):
 
@@ -234,6 +248,7 @@ class UpSampling(nn.Module):
         up = F.interpolate(x, scale_factor=2, mode="nearest")
         x = self.Up(up)
         return torch.cat((x, r), 1)
+
 
 # A2RNet
 class ESSA_UNet(nn.Module):
@@ -269,17 +284,17 @@ class ESSA_UNet(nn.Module):
         self.pred = nn.Conv2d(16, 1, 3, 1, 1)
 
     def forward(self, x1, x2):  # x1:vis  x2:ir
-        x1 = x1[:, : 1]
-        x = torch.cat((x1, x2), dim=1) 
-        
+        x1 = x1[:, :1]
+        x = torch.cat((x1, x2), dim=1)
+
         R1 = self.C1(x)
         R1 = self.C1_ESSA(R1)
-        
+
         R2 = self.C2(self.D1(R1))
-        
+
         R3 = self.C3(self.D2(R2))
         R3 = self.C3_ESSA(R3)
-        
+
         R4 = self.C4(self.D3(R3))
 
         Y1 = self.C5(self.D4(R4))
@@ -291,5 +306,12 @@ class ESSA_UNet(nn.Module):
         O3 = self.C8(self.U3(O2, R2))
 
         O4 = self.C9(self.U4(O3, R1))
-        
+
         return self.Th(self.pred(O4))
+
+
+if __name__ == "__main__":
+    
+    model = ESSA_UNet()
+    # print(model)
+    print(sum([param.numel() for param in model.parameters() if param.requires_grad]))

@@ -31,7 +31,7 @@ from torchvision.transforms import Resize
 
 from torch.nn.parallel import DataParallel
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 warnings.filterwarnings('ignore')
 
@@ -83,7 +83,6 @@ def main(args):
 
     train_loss = fusion_loss_adv()
 
-    st = glob_st = time.time()
     print('Attack start!')
 
 
@@ -154,11 +153,8 @@ def attack(image_vis, image_ir, image_gt, model, loss, step_size, total_steps, e
     image_gt = image_gt.cuda()
     image_gt_ycbcr = RGB2YCrCb(image_gt)
     image_gt_ycbcr = image_gt_ycbcr[:, : 1]
-    image_vis_ycrcb = RGB2YCrCb(image_vis)
 
     torch_resize = Resize([480,640])
-    image_vis_resized = torch_resize(image_vis_ycrcb)
-    image_ir_resized = torch_resize(image_ir)
     image_gt_resized = torch_resize(image_gt_ycbcr)
 
     random_init_vis = torch.rand_like(image_vis)*0.0003

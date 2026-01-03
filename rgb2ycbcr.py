@@ -12,18 +12,18 @@ def RGB2YCrCb(input_im):
     Y = torch.unsqueeze(Y, 1)
     Cr = torch.unsqueeze(Cr, 1)
     Cb = torch.unsqueeze(Cb, 1)
-    temp = torch.cat((Y, Cr, Cb), dim=1).cuda()
+    temp = torch.cat((Y, Cr, Cb), dim=1).cuda() # (nhw, 3)
     out = (
         temp.reshape(
             list(input_im.size())[0],
             list(input_im.size())[2],
             list(input_im.size())[3],
             3,
-        )
-        .transpose(1, 3)
-        .transpose(2, 3)
+        ) # (n, h, w, 3)
+        .transpose(1, 3) # (n,3,w,h)
+        .transpose(2, 3) # (n,3,h,w)
     )
-    return out
+    return out # (n, 3, h, w)
 
 def YCrCb2RGB(input_im):
     im_flat = input_im.transpose(1, 3).transpose(1, 2).reshape(-1, 3)

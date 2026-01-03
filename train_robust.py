@@ -1,36 +1,24 @@
-from PIL import Image
-import numpy as np
 from torch.autograd import Variable
-import torch.nn.functional as F
-
 from model import ESSA_UNet
 
 from dataset import fusion_dataset_gt
-import argparse
 import datetime
 import time
 import logging
-import os.path as osp
 import os
 from logger import setup_logger
 from loss import fusion_loss_adv
 import torch
 from torch.utils.data import DataLoader
 import warnings
-from rgb2ycbcr import RGB2YCrCb, YCrCb2RGB
+from rgb2ycbcr import RGB2YCrCb
 import random
 
-import matplotlib
 import numpy as np
-import matplotlib.pyplot as plt
-import scipy.io as scio
 
-from torchvision.transforms import Resize
 
-from collections import OrderedDict
 
-from torch.nn.parallel import DataParallel
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 warnings.filterwarnings('ignore')
 
@@ -50,7 +38,7 @@ def attack(image_vis, image_ir, image_gt, model, loss, step_size=1/255, total_st
     image_ir = image_ir.cuda()
     image_gt = image_gt.cuda()
     image_gt_ycbcr = RGB2YCrCb(image_gt)
-    image_gt_ycbcr = image_gt_ycbcr[:, : 1]
+    image_gt_ycbcr = image_gt_ycbcr[:, : 1] # (n, 1, h, w)
     image_vis_ycrcb = RGB2YCrCb(image_vis)
 
 
@@ -87,7 +75,7 @@ def attack(image_vis, image_ir, image_gt, model, loss, step_size=1/255, total_st
 
 
 
-def train(logger=None):
+def train(logger):
     seed_everything()
     lr_start = 0.001
     model_path = './model'

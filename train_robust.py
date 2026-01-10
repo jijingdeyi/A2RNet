@@ -115,6 +115,14 @@ def train(logger, exp_name=None):
         lr_epo = lr_start * lr_decay ** (epo - 1)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr_epo
+        
+        # 用于累积每个epoch的训练loss
+        epoch_losses = []
+        epoch_loss_dict = {
+            'loss_sal': [], 'loss_grad': [], 'loss_ssim': [],
+            'loss_mean': [], 'loss_tv': []
+        }
+        
         for it, (image_ir, image_vis) in enumerate(trainloader):
             
             train_model.train()
@@ -145,6 +153,11 @@ def train(logger, exp_name=None):
                 logger.warning(f"Loss is NaN or Inf at epoch {epo}, iter {it}, skipping...")
                 continue
             
+            # 累积loss用于epoch平均
+            epoch_losses.append(loss.item())
+            for key in epoch_loss_dict:
+                epoch_loss_dict[key].append(loss_dict[key])
+            
             loss.backward()
             
             # 梯度裁剪，防止梯度爆炸
@@ -158,44 +171,23 @@ def train(logger, exp_name=None):
             eta = int((len(trainloader) * epoch - now_it)
                       * (glob_t_intv / (now_it)))
             eta = str(datetime.timedelta(seconds=eta))
-            if now_it % 10 == 0:
-                msg = ', '.join(
-                    [
-                        'step: {it}/{max_it}',
-                        'loss: {loss:.4f}',
-                        # 'loss_total: {loss_total:.4f}',
-                        'loss_sal: {loss_sal:.4f}',
-                        'loss_grad: {loss_grad:.4f}',
-                        'loss_ssim: {loss_ssim:.4f}',
-                        'loss_mean: {loss_mean:.4f}',
-                        'loss_tv: {loss_tv:.4f}',
-
-                        # 对抗loss
-                        # 'loss_total_adv: {loss_total_adv:.4f}',
-
-                        'time: {time:.4f}',
-                        'eta: {eta}',
-                    ]
-                ).format(
-                        it=now_it,
-                        max_it=len(trainloader) * epoch,
-                        loss=loss.item(),
-                        # loss_total=loss_total.item(),
-                        loss_sal=loss_dict['loss_sal'],
-                        loss_grad=loss_dict['loss_grad'],
-                        loss_ssim=loss_dict['loss_ssim'],
-                        loss_mean=loss_dict['loss_mean'],
-                        loss_tv=loss_dict['loss_tv'],
-                        # 对抗loss
-                        # loss_total_adv=loss_total_adv.item(),
-                        # loss_mse_adv=loss_mse_adv.item(),
-                        # loss_ssim_adv=loss_ssim_adv.item(),
-
-                        time=t_intv,
-                        eta=eta,
-                    )
-                logger.info(msg)
-                st = ed
+            
+            # 每50个iteration输出一次进度（可选，用于监控训练进度）
+            if now_it % 50 == 0:
+                logger.info(f"Epoch {epo+1}/{epoch}, Iter {it+1}/{len(trainloader)}, "
+                          f"loss: {loss.item():.4f}, eta: {eta}")
+            st = ed
+        
+        # 每个epoch结束时输出平均训练loss
+        avg_epoch_loss = sum(epoch_losses) / len(epoch_losses) if epoch_losses else 0.0
+        avg_loss_dict = {key: sum(vals) / len(vals) if vals else 0.0 
+                        for key, vals in epoch_loss_dict.items()}
+        logger.info(f"Epoch {epo+1}/{epoch} - Train Loss: {avg_epoch_loss:.4f} "
+                   f"(sal: {avg_loss_dict['loss_sal']:.4f}, "
+                   f"grad: {avg_loss_dict['loss_grad']:.4f}, "
+                   f"ssim: {avg_loss_dict['loss_ssim']:.4f}, "
+                   f"mean: {avg_loss_dict['loss_mean']:.4f}, "
+                   f"tv: {avg_loss_dict['loss_tv']:.4f})")
 
         # 验证阶段
         train_model.eval()

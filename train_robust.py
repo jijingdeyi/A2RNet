@@ -1,6 +1,6 @@
 from model import ESSA_UNet
 
-from dataset import trainloader
+from dataset import trainloader, valloader
 import datetime
 import time
 import logging
@@ -11,6 +11,8 @@ import torch
 import warnings
 from rgb2ycbcr import RGB2YCrCb
 import random
+
+from metric import VIF_function, Qabf_function
 
 import numpy as np
 warnings.filterwarnings('ignore')
@@ -94,6 +96,9 @@ def train(logger):
     epoch = 50
 
     st = glob_st = time.time()
+    val_best_score = 0.0
+    patience_max = 5
+    patience = 0
     logger.info('Train start!')
 
     for epo in range(epoch):
@@ -138,7 +143,7 @@ def train(logger):
             torch.nn.utils.clip_grad_norm_(train_model.parameters(), max_norm=1.0)
             
             optimizer.step()
-
+            
             ed = time.time()
             t_intv, glob_t_intv = ed - st, ed - glob_st
             now_it = len(trainloader) * epo + it + 1
@@ -184,11 +189,54 @@ def train(logger):
                 logger.info(msg)
                 st = ed
 
+        # 验证阶段
+        train_model.eval()
+        total_qabf = 0.0
+        total_vif = 0.0
+        val_count = 0
+        
+        with torch.no_grad():
+            for it, (image_ir, image_vis) in enumerate(valloader):
+                image_vis = image_vis.to(device)
+                image_ir = image_ir.to(device)
+                image_vis_ycrcb = RGB2YCrCb(image_vis)
+                image_vis_y = image_vis_ycrcb[:, 0:1, :, :]
 
-    train_model_file = os.path.join(model_path, f'{loss_total.item()}.pth')
-    torch.save(train_model.state_dict(), train_model_file)
-    logger.info("Train model save as: {}".format(train_model_file))
-    logger.info('\n')
+                fused = train_model(image_vis_ycrcb, image_ir)
+                
+                image_ir_np = (image_ir.squeeze().cpu().numpy() * 255.0).astype(np.float32)
+                image_vis_y_np = (image_vis_y.squeeze().cpu().numpy() * 255.0).astype(np.float32)
+                fused_np = (fused.squeeze().cpu().numpy() * 255.0).astype(np.float32)
+                
+                qabf = Qabf_function(image_ir_np, image_vis_y_np, fused_np)
+                vif = VIF_function(image_ir_np, image_vis_y_np, fused_np)
+
+                total_qabf += qabf
+                total_vif += vif
+                val_count += 1
+
+        # 计算平均指标
+        avg_qabf = total_qabf / val_count
+        avg_vif = total_vif / val_count
+        val_score = avg_qabf + 0.5 * avg_vif
+
+        logger.info(f"Epoch {epo}: val_qabf={avg_qabf:.4f}, val_vif={avg_vif:.4f}, val_score={val_score:.4f}")
+
+        # 判断是否保存模型和早停
+        if val_score > val_best_score:
+            val_best_score = val_score
+            model_name = f'A2RNet-{time.strftime("%Y-%m-%d-%H-%M-%S")}-{val_best_score:.4f}.pth'
+            train_model_file = os.path.join(model_path, model_name)
+            torch.save(train_model.state_dict(), train_model_file)
+            logger.info("Val model save as: {}, val_score: {:.4f}".format(model_name, val_best_score))
+            patience = 0
+        else:
+            patience += 1
+            logger.info(f"Val score not improved. Patience: {patience}/{patience_max}")
+            if patience >= patience_max:
+                logger.info("Early stopping triggered at epoch {}".format(epo))
+                break
+
 
 if __name__ == "__main__":
 

@@ -4,8 +4,7 @@ from scipy.signal import convolve2d
 from Qabf import get_Qabf
 import math
 import torch
-from torchmetrics.image import StructuralSimilarityIndexMeasure
-from torchmetrics.image import MultiScaleStructuralSimilarityIndexMeasure
+from pytorch_msssim import ssim, ms_ssim
 
 
 def EN_function(image_array):
@@ -200,23 +199,42 @@ def AG_function(image):
 
 
 def SSIM_function(A, B, F):
-    # 输入 numpy (H, W) → torch (1,1,H,W)
-    A = torch.tensor(A, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
-    B = torch.tensor(B, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
-    F = torch.tensor(F, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+    """
+    计算 SSIM 指标
+    
+    Args:
+        A: 参考图像 A (numpy array, shape: H, W)
+        B: 参考图像 B (numpy array, shape: H, W)
+        F: 融合图像 (numpy array, shape: H, W)
+    
+    Returns:
+        SSIM 值 (float)
+    """
+    A_t = torch.tensor(A, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+    B_t = torch.tensor(B, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+    F_t = torch.tensor(F, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
 
-    ssim = StructuralSimilarityIndexMeasure(data_range=255.0)
-    ssim_A = ssim(A, F)
-    ssim_B = ssim(B, F)
+    ssim_A = ssim(A_t, F_t, data_range=255.0)
+    ssim_B = ssim(B_t, F_t, data_range=255.0)
     return ((ssim_A + ssim_B) / 2).item()
 
 
 def MS_SSIM_function(A, B, F):
-    A = torch.tensor(A, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
-    B = torch.tensor(B, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
-    F = torch.tensor(F, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+    """
+    计算 MS-SSIM 指标
+    
+    Args:
+        A: 参考图像 A (numpy array, shape: H, W)
+        B: 参考图像 B (numpy array, shape: H, W)
+        F: 融合图像 (numpy array, shape: H, W)
+    
+    Returns:
+        MS-SSIM 值 (float)
+    """
+    A_t = torch.tensor(A, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+    B_t = torch.tensor(B, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+    F_t = torch.tensor(F, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
 
-    ms_ssim = MultiScaleStructuralSimilarityIndexMeasure(data_range=255.0)
-    ssim_A = ms_ssim(A, F)
-    ssim_B = ms_ssim(B, F)
-    return ((ssim_A + ssim_B) / 2).item()
+    ms_ssim_A = ms_ssim(A_t, F_t, data_range=255.0)
+    ms_ssim_B = ms_ssim(B_t, F_t, data_range=255.0)
+    return ((ms_ssim_A + ms_ssim_B) / 2).item()
